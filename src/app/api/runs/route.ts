@@ -1,157 +1,190 @@
-import { db } from "@/db";
-import { competitors, searchRuns, researchResults } from "@/db/schema";
 import { runResearchAgent } from "@/agents/research";
 import { runScoringAgent } from "@/agents/scoring";
+import { db } from "@/db";
+import { competitors, researchResults, searchRuns } from "@/db/schema";
+import { encodeEvent } from "@/lib/events";
 import { createId } from "@paralleldrive/cuid2";
+import { propagateAttributes, withTask, withWorkflow } from "@respan/respan";
 import { eq } from "drizzle-orm";
-import { withWorkflow, withTask, propagateAttributes } from "@respan/respan";
+
+export const maxDuration = 30;
 
 export async function POST(request: Request) {
   const body = await request.json();
   const { name, url } = body as { name: string; url?: string };
 
-  if (!name || typeof name !== "string") {
+  if (!name) {
     return Response.json({ error: "name is required" }, { status: 400 });
   }
 
   const runId = createId();
 
-  try {
-    return await propagateAttributes(
-      {
-        customer_identifier: name.trim(),
-        thread_identifier: runId,
-      },
-      () =>
-        withWorkflow({ name: "competitor-research-run" }, async () => {
-          // Find or create competitor (dedupe by name, case-insensitive)
-          const existingCompetitor = await db.query.competitors.findFirst({
-            where: (c, { sql }) =>
-              sql`lower(${c.name}) = lower(${name.trim()})`,
-          });
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (event: Parameters<typeof encodeEvent>[0]) => {
+        controller.enqueue(new TextEncoder().encode(encodeEvent(event)));
+      };
 
-          const competitorId = existingCompetitor?.id ?? createId();
+      try {
+        await propagateAttributes(
+          {
+            customer_identifier: name.trim(),
+            thread_identifier: runId,
+          },
+          () =>
+            withWorkflow({ name: "competitor-research-run" }, async () => {
+              // Find or create competitor (dedupe by name, case-insensitive)
+              const existingCompetitor = await db.query.competitors.findFirst({
+                where: (c, { sql }) =>
+                  sql`lower(${c.name}) = lower(${name.trim()})`,
+              });
 
-          if (!existingCompetitor) {
-            await db.insert(competitors).values({
-              id: competitorId,
-              name: name.trim(),
-              url: url?.trim() || null,
-              createdAt: Date.now(),
-            });
-          }
+              const competitorId = existingCompetitor?.id ?? createId();
 
-          // Create search run
-          await db.insert(searchRuns).values({
-            id: runId,
-            competitorId,
-            status: "running",
-            createdAt: Date.now(),
-          });
-
-          // Run research agent
-          const results = await withTask({ name: "research" }, () =>
-            runResearchAgent({
-              competitorName: name.trim(),
-              competitorUrl: url?.trim(),
-            }),
-          );
-
-          // Insert research results
-          const resultRows = results.map((r) => ({
-            id: createId(),
-            runId,
-            source: r.source,
-            url: r.url,
-            extractedText: r.extractedText,
-            signalType: r.signalType,
-            createdAt: Date.now(),
-          }));
-
-          for (const row of resultRows) {
-            await db.insert(researchResults).values(row);
-          }
-
-          // Score each result
-          const scoringFailures = await withTask(
-            { name: "scoring" },
-            async () => {
-              let failures = 0;
-
-              for (const row of resultRows) {
-                try {
-                  await withTask({ name: "score-result" }, async () => {
-                    const original = results.find(
-                      (r) =>
-                        r.url === row.url && r.signalType === row.signalType,
-                    );
-                    if (!original) return;
-
-                    const scored = await runScoringAgent({
-                      competitorName: name.trim(),
-                      result: original,
-                    });
-
-                    await db
-                      .update(researchResults)
-                      .set({
-                        score: scored.score,
-                        reasoning: scored.reasoning,
-                      })
-                      .where(eq(researchResults.id, row.id));
-                  });
-                } catch {
-                  failures++;
-                }
+              if (!existingCompetitor) {
+                await db.insert(competitors).values({
+                  id: competitorId,
+                  name: name.trim(),
+                  url: url?.trim() || null,
+                  createdAt: Date.now(),
+                });
               }
 
-              return failures;
-            },
-          );
+              // Create search run
+              await db.insert(searchRuns).values({
+                id: runId,
+                competitorId,
+                status: "running",
+                createdAt: Date.now(),
+              });
 
-          // If all scoring failed, mark run as failed
-          if (
-            scoringFailures === resultRows.length &&
-            resultRows.length > 0
-          ) {
-            await db
-              .update(searchRuns)
-              .set({
-                status: "failed",
-                errorMessage: "All scoring calls failed",
-                completedAt: Date.now(),
-              })
-              .where(eq(searchRuns.id, runId));
+              send({ type: "run-started", runId, competitorName: name.trim() });
 
-            return Response.json(
-              { error: "All scoring calls failed" },
-              { status: 500 },
-            );
-          }
+              // Run research agent
+              const results = await withTask({ name: "research" }, () =>
+                runResearchAgent({
+                  competitorName: name.trim(),
+                  competitorUrl: url?.trim(),
+                }),
+              );
 
-          // Mark run complete
-          await db
-            .update(searchRuns)
-            .set({ status: "complete", completedAt: Date.now() })
-            .where(eq(searchRuns.id, runId));
+              // Insert research results
+              const resultRows = results.map((r) => ({
+                id: createId(),
+                runId,
+                source: r.source,
+                url: r.url,
+                extractedText: r.extractedText,
+                signalType: r.signalType,
+                createdAt: Date.now(),
+              }));
 
-          // Return completed run data
-          const completedResults = await db.query.researchResults.findMany({
-            where: (r, { eq: e }) => e(r.runId, runId),
-          });
+              for (const row of resultRows) {
+                await db.insert(researchResults).values(row);
+              }
 
-          return Response.json({
-            runId,
-            competitorId,
-            competitorName: name.trim(),
-            results: completedResults,
-          });
-        }),
-    );
-  } catch (error) {
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 },
-    );
-  }
+              send({ type: "research-complete", resultCount: results.length });
+
+              // Score each result
+              const scoringFailures = await withTask(
+                { name: "scoring" },
+                async () => {
+                  let failures = 0;
+
+                  for (const row of resultRows) {
+                    try {
+                      await withTask({ name: "score-result" }, async () => {
+                        const original = results.find(
+                          (r) =>
+                            r.url === row.url &&
+                            r.signalType === row.signalType,
+                        );
+                        if (!original) return;
+
+                        const scored = await runScoringAgent({
+                          competitorName: name.trim(),
+                          competitorId,
+                          result: original,
+                        });
+
+                        await db
+                          .update(researchResults)
+                          .set({
+                            score: scored.score,
+                            reasoning: scored.reasoning,
+                          })
+                          .where(eq(researchResults.id, row.id));
+
+                        send({
+                          type: "result-scored",
+                          resultId: row.id,
+                          signalType: row.signalType,
+                          score: scored.score,
+                          reasoning: scored.reasoning,
+                          source: row.source,
+                          url: row.url,
+                          extractedText: row.extractedText,
+                        });
+                      });
+                    } catch {
+                      failures++;
+                      send({
+                        type: "scoring-failed",
+                        resultId: row.id,
+                      });
+                    }
+                  }
+
+                  return failures;
+                },
+              );
+
+              // If all scoring failed, mark run as failed
+              if (
+                scoringFailures === resultRows.length &&
+                resultRows.length > 0
+              ) {
+                await db
+                  .update(searchRuns)
+                  .set({
+                    status: "failed",
+                    errorMessage: "All scoring calls failed",
+                    completedAt: Date.now(),
+                  })
+                  .where(eq(searchRuns.id, runId));
+
+                send({
+                  type: "run-failed",
+                  error: "All scoring calls failed",
+                });
+                return;
+              }
+
+              // Mark run complete
+              await db
+                .update(searchRuns)
+                .set({ status: "complete", completedAt: Date.now() })
+                .where(eq(searchRuns.id, runId));
+
+              send({ type: "run-complete", runId });
+            }),
+        );
+      } catch (error) {
+        send({
+          type: "run-failed",
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }

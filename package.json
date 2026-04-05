@@ -9,15 +9,19 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.66",
     "@paralleldrive/cuid2": "^3.3.0",
     "@respan/instrumentation-vercel": "^1.0.3",
     "@respan/respan": "^2.0.1",
     "@respan/tracing": "^1.1.4",
+    "ai": "^6.0.146",
     "better-sqlite3": "^12.8.0",
     "drizzle-orm": "^0.45.2",
     "next": "16.2.2",
+    "playwright": "^1.59.1",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -30,6 +34,8 @@
     "eslint-config-next": "16.2.2",
     "prettier": "^3.8.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.2",
+    "vitest-browser-react": "^2.2.0"
   }
 }
