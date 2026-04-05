@@ -4,6 +4,34 @@ A running log of development sessions, written to support future articles about 
 
 ---
 
+## Phase 1: First Vertical Slice Running End-to-End
+
+*Sunday Apr 5, 2026, 1:00 AM — Session 3*
+
+### What We Built
+
+A working pipeline from form input to scored signal cards, backed by SQLite. You can type a competitor name, hit submit, and see five stubbed research results displayed as ranked signal cards — the full Phase 1 vertical slice, minus real LLM calls and streaming.
+
+### How It Came Together
+
+We moved the project to a `src/` directory structure, installed Drizzle with better-sqlite3, and wrote the three-table schema (`competitors`, `search_runs`, `research_results`) matching the spec exactly. The migration generated clean SQL and ran without issues.
+
+The stubbed agents came next — the research stub returns five hardcoded results spanning different signal types (pricing, product, hiring, reputation, partnership), and the scoring stub maps each signal type to a plausible score and reasoning. Both return the exact shapes the real agents will use later, so swapping in LLM calls should be straightforward.
+
+The orchestrator is a POST route handler at `/api/runs` that follows the spec lifecycle: find-or-create competitor (deduped by name, case-insensitive), create a run, call the research stub, insert results, score each one, update the run status. Error handling follows the spec too — individual scoring failures are tolerated, but if all scoring fails the run is marked failed.
+
+The UI is a single client component with a form and signal cards sorted by score. Cards with failed scoring sink to the bottom with an indicator.
+
+### The Interesting Parts
+
+The pnpm build approval workflow was an unexpected detour. pnpm blocks native build scripts by default as a supply chain security measure — you have to explicitly approve packages like better-sqlite3 and esbuild before they can compile. The UX is unintuitive (spacebar to select, not enter) and easy to accidentally dismiss, which locks you into an "ignored" state that requires nuking `node_modules` to recover. An interesting security-vs-DX tradeoff that led to a good conversation about whether persistent approval is meaningfully more secure than npm's "trust everything" approach.
+
+### What's Next
+
+Phase 1 implementation is complete. The stubs are ready to be swapped for real Vercel AI SDK agents with Anthropic Claude. Respan instrumentation comes in just before that swap. Streaming gets added once real latency exists.
+
+---
+
 ## Rescoping Phase 1 and Setting Project Standards
 
 *Saturday Apr 4, 2026, 11:54 PM — Session 2*
