@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: [
+    "@respan/respan",
+    "@respan/tracing",
+    "@respan/respan-sdk",
+    "@respan/instrumentation-vercel",
+  ],
 };
 
 export default nextConfig;

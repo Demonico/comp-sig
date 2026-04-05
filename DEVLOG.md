@@ -4,6 +4,36 @@ A running log of development sessions, written to support future articles about 
 
 ---
 
+## Phase 1.5: Respan Instrumentation and Reshuffling the Roadmap
+
+*Saturday Apr 5, 2026, 1:51 PM — Session 4*
+
+### What We Built
+
+Respan observability is now wired into the orchestrator pipeline. The run lifecycle — from competitor lookup through research and scoring — is wrapped in Respan's `withWorkflow` and `withTask` decorators, creating a trace hierarchy that will light up in the dashboard once connected. We also restructured the entire build order to reflect what we've learned about pacing.
+
+### How It Came Together
+
+The session started with a walk-through of every remaining item across all phases. The carry-over from Phase 1 — Respan, real LLM calls, and streaming — needed to be sequenced, and the original Phase 2–4 items needed to shift accordingly. The key realization was that Respan should go in as its own micro-phase (1.5) before real agents arrive. That way, when LLM calls land in Phase 2, the tracing skeleton is already proven and any issues are isolated to one concern at a time. Most of the session was planning — walking through each phase, deciding what stays, what moves, and why. That's typical: more time thinking about the right order than writing the code.
+
+Streaming got deferred again for the same reason it was cut from Phase 1: without real latency from LLM calls, streaming is just instant delivery of everything at once. It moves to Phase 2 alongside real agents where it actually has something to stream.
+
+The Respan integration turned out to be straightforward once we found the right docs. The Vercel AI SDK plugin (`@respan/instrumentation-vercel`) auto-instruments `generateText` and `streamText` calls — but since we're still on stubs, that auto-instrumentation is effectively a no-op for now. Instead, we manually wrapped the orchestrator using `withWorkflow`, `withTask`, and `propagateAttributes` to create the trace structure. The competitor name and run ID are attached as trace attributes so runs are identifiable in the dashboard. When real agents replace the stubs in Phase 2, their LLM calls will automatically appear as child spans inside the existing task wrappers.
+
+We also pulled prior signal history forward into Phase 2, since it's really just a prompt design concern when building the real Scoring Agent — not a separate feature worth its own phase.
+
+### The Interesting Parts
+
+The build order reshuffling was the real work of the session. The final shape — Phase 1 (done), 1.5 (Respan), 2 (real agents + streaming + prior history), 3 (synthesis + platform integration), 4 (UX refinement), 5 (persistence + auth) — keeps each phase focused on one learning objective. That matters for a project where the point is to learn, not ship fast.
+
+The `serverExternalPackages` config in Next.js was a minor but useful detail — Respan's SDK uses native Node.js APIs that break when bundled by webpack/turbopack, so they need to be loaded via `require()` at runtime instead.
+
+### What's Next
+
+Create a Respan account, add the real API key, and verify traces appear in the dashboard. Once that's confirmed, Phase 1.5 is done and Phase 2 begins: swapping stubs for real Vercel AI SDK + Anthropic Claude calls, adding streaming, and building the Scoring Agent's prompt to consider prior signal history.
+
+---
+
 ## Phase 1: First Vertical Slice Running End-to-End
 
 *Sunday Apr 5, 2026, 1:00 AM — Session 3*
