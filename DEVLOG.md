@@ -4,6 +4,34 @@ A running log of development sessions, written to support future articles about 
 
 ---
 
+## Rescoping Phase 1 and Setting Project Standards
+
+*Saturday Apr 4, 2026, 11:54 PM — Session 2*
+
+### What We Built
+
+No application code yet, but we rewrote the foundation the code will sit on. We trimmed the Phase 1 spec down to a tighter scope, created a detailed implementation plan, added coding standards to `CLAUDE.md`, and set up a testing skill file for future use.
+
+### How It Came Together
+
+The session started with frustration — the previous session's plan had bad patterns in it (like making all components client components) and the scope was too ambitious. Rather than patch the old plan, we started fresh and walked through the spec section by section.
+
+The key conversation was about what actually belongs in Phase 1 for a learning project. The original spec included streaming (SSE), Respan instrumentation, and implied real LLM calls — all on top of the database, orchestrator, and UI. We cut all three. Streaming doesn't make sense when stubbed agents return instantly. Respan doesn't teach much when there are no real LLM traces to observe. Both come back naturally when real agents arrive in Phase 2.
+
+We also settled the server action vs route handler question. Server actions can't stream responses, which makes them unsuitable for the orchestrator even in later phases. Route handler was the only viable option.
+
+We ported coding standards from another project (Idea Autopsy) into this one — generic versions in `CLAUDE.md` for always-on rules, and a `/testing` skill for test-specific conventions that only need to load when writing tests. This came out of a discussion about Claude Code's lack of file-glob scoped rules — unlike Cursor, everything is either always loaded or manually invoked.
+
+### The Interesting Parts
+
+The decision to keep the orchestrator as plain application code rather than an agent was worth the discussion. For a linear pipeline (research → score → done), an LLM call to decide "what's next" is just an expensive for-loop. But the door stays open — if Phase 2's synthesis agent makes the flow adaptive, we can revisit.
+
+### What's Next
+
+Implementation starts: Drizzle + SQLite schema, stubbed agents, orchestrator route handler, and a basic UI. All with hardcoded data, no external calls.
+
+---
+
 ## Planning the Core Pipeline and the Agentic Future
 
 *Friday Apr 3, 2026, 10:30 PM — Session 1*
